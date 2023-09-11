@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./interfaces/IPinkswapRouter02.sol";
+import "./interfaces/IPinkswapFactory.sol";
 contract Presale is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     uint256 public softCap;
@@ -19,6 +20,9 @@ contract Presale is Ownable, ReentrancyGuard {
     uint256 public totalSold;
     bool public refundEnabled;
     IPinkswapRouter02 public addLiquidContract;
+    IPinkswapFactory public createPairAddress;
+
+    address immutable WBNB = 0x094616F0BdFB0b526bD735Bf66Eca0Ad254ca81F;
 
     enum State {
         Pending,
@@ -38,6 +42,7 @@ contract Presale is Ownable, ReentrancyGuard {
     event TokensPurchased(address indexed buyer, uint256 amount);
     event ClaimedTokens(address indexed user, uint256 amount);
     event RefundedTokens(address indexed user, uint256 amount);
+    event Finalize(uint256 timestamp);
 
     //struct
     struct PresaleInfo {
@@ -74,7 +79,8 @@ contract Presale is Ownable, ReentrancyGuard {
         uint256 _minimumPerWallet,
         uint256 _tokenPrice,
         address _tokenAddress,
-        address _addLiquidContract
+        address _addLiquidContract,
+        address _createPairAddress
     ) {
         softCap = _softCap;
         hardCap = _hardCap;
@@ -86,6 +92,7 @@ contract Presale is Ownable, ReentrancyGuard {
         tokenPrice = _tokenPrice;
         state = State.Pending;
         addLiquidContract = IPinkswapRouter02(_addLiquidContract);
+        createPairAddress = IPinkswapFactory(_createPairAddress);                  
 
         // Transfer tokens from the deployer to the contract
         token = IERC20(_tokenAddress);
@@ -154,9 +161,6 @@ contract Presale is Ownable, ReentrancyGuard {
 
         contributions[msg.sender] += msg.value;
         totalSold += msg.value;
-        if(totalSold == hardCap) {
-            finalize();
-        }
         emit TokensPurchased(msg.sender, msg.value);
     }
 
@@ -227,8 +231,23 @@ contract Presale is Ownable, ReentrancyGuard {
     function isFinalized() public view returns(bool){
         return (block.timestamp >= endTime || totalSold >= softCap || totalSold == hardCap);
     }
-    function finalize() public payable nonReentrant{
+
+    //deadline = now + lock time
+    function finalize(uint8 _liquidPercent, uint256 _deadline) public payable nonReentrant{
         require(isFinalized(), "can not finalize");
+        //handle create pair
+        createPairAddress.createPair(WBNB, address(token));
+
+        //handle add liquid
+        require(51<= _liquidPercent && _liquidPercent <=100, "invalid liquidity percent");
+        payable(owner()).transfer(address(addLiquidContract).balance * (100-_liquidPercent) / 100);
+        addLiquidContract.addLiquidityETH(address(token), totalSold* _liquidPercent/ 100, 0, 0, address(addLiquidContract), _deadline);
         
+        //handle finalize
+        state = State.Finished;
+        payable(owner()).transfer(address(this).balance * (100-_liquidPercent) / 100);
+        
+
+        emit Finalize(block.timestamp);
     }
 }

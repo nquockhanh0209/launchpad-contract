@@ -13,15 +13,17 @@ async function main() {
   const token = await hre.ethers.deployContract("Token", [
     "0xd5C2A7BC67B80bd2A7A2DB3414B69c33CedE42a3",
     ethers.parseEther("10000000000"),
+    "name",
+    "name"
   ]);
-  console.log(token);
-  let softCap = 20;
-  let hardCap = 50;
+  await token.waitForDeployment();
+  let softCap = ethers.parseEther("0.01");
+  let hardCap = ethers.parseEther("0.04");
   let startTime = 0;
   let endTime = 1000000000000;
   let isPublic = true;
-  let limitPerWallet = 1000;
-  let minimumPerWallet = 100;
+  let limitPerWallet = ethers.parseEther("0.04");
+  let minimumPerWallet = ethers.parseEther("0.01");
   let tokenPrice = ethers.parseEther("0.01");
   let tokenAddress = await token.getAddress();
 
@@ -35,6 +37,9 @@ async function main() {
     minimumPerWallet,
     tokenPrice,
     tokenAddress,
+    
+    "0xBBe737384C2A26B15E23a181BDfBd9Ec49E00248",
+    "0xaadb9ef09aaf53019ebe3ebb25aecbb2c9e63210",
   ]);
 
   await presale.waitForDeployment();
