@@ -82,6 +82,7 @@ contract Presale is Ownable, ReentrancyGuard {
         address _tokenAddress,
         address _addLiquidContract,
         address _createPairAddress
+        // uint256 _presaleMaxAMount
     ) {
         softCap = _softCap;
         hardCap = _hardCap;
@@ -97,6 +98,7 @@ contract Presale is Ownable, ReentrancyGuard {
 
         // Transfer tokens from the deployer to the contract
         token = IERC20(_tokenAddress);
+        // token.transfer(address(this), _presaleMaxAMount);
     }
 
     function getData(
@@ -200,13 +202,13 @@ contract Presale is Ownable, ReentrancyGuard {
         token.safeTransfer(owner(), token.balanceOf(address(this)));
     }
 
-    function burnRemainingTokens() external onlyOwner {
+    function burnRemainingTokens() internal {
         uint256 burnAmount = getRemainingTokensToHardCap();
         require(burnAmount > 0, "No remaining tokens to burn");
         token.safeTransfer(address(0), burnAmount);
     }
 
-    function refundLaunchpadTokenToOwner() external onlyOwner {
+    function refundLaunchpadTokenToOwner() internal {
         uint256 refundAmount = getRemainingTokensToHardCap();
         require(refundAmount > 0, "No remaining tokens for refund");
         token.safeTransfer(owner(), refundAmount);
@@ -252,23 +254,18 @@ contract Presale is Ownable, ReentrancyGuard {
     function finalize(
         uint8 _liquidPercent,
         uint256 _deadline,
+        uint256 _listingRate,
         bool _isRefund
     ) public payable nonReentrant {
         require(isFinalized(), "can not finalize");
         uint256 ETHAddLiquid = (address(this).balance * (_liquidPercent)) / 100;
-        uint256 refundToOwnerAmount = (address(this).balance *
-            (100 - _liquidPercent)) / 100;
-        uint256 amountTokenAddLiquid = (totalSold *
-            tokenPrice *
-            _liquidPercent) / 100;
+        uint256 refundToOwnerAmount = (address(this).balance * (100 - _liquidPercent)) / 100;
+        uint256 amountTokenAddLiquid = (totalSold * tokenPrice * _listingRate * (_liquidPercent / 100)) / (1 ether * 1 ether);
         //handle transfer token to contract this
         token.transferFrom(msg.sender, address(this), amountTokenAddLiquid);
         //handle create pair
         createPairAddress.createPair(WBNB, address(token));
-        token.approve(
-            address(addLiquidContract),
-            (totalSold * tokenPrice * _liquidPercent) / 100
-        );
+        token.approve(address(addLiquidContract), amountTokenAddLiquid);
         //handle add liquid
         require(
             51 <= _liquidPercent && _liquidPercent <= 100,
@@ -297,8 +294,10 @@ contract Presale is Ownable, ReentrancyGuard {
     }
 
     function getLiquidAmount(
-        uint8 _liquidPercent
+        uint8 _liquidPercent,
+        uint256 _listingRate
     ) public view returns (uint256) {
-        return (totalSold * tokenPrice * _liquidPercent) / 100;
+        return
+            (totalSold * tokenPrice * _listingRate * (_liquidPercent / 100)) /(1 ether * 1 ether);
     }
 }

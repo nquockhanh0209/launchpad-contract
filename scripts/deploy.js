@@ -40,6 +40,7 @@ async function main() {
     
     "0xBBe737384C2A26B15E23a181BDfBd9Ec49E00248", //router
     "0xaadb9ef09aaf53019ebe3ebb25aecbb2c9e63210", //pair
+    ethers.parseEther("100")
   ]);
 
   await presale.waitForDeployment();
