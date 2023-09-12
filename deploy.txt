@@ -1,1 +1,1 @@
-contract presale is deploy at 0x1A59a1bbc55C49e7f8A8447b818351cfAf09e11c with token address is 0xaDa090B7Cbc688731CAA4c7756015095064a34C1
+contract presale is deploy at 0xcFAA4b163aCC279f1d2Af6bab7B758AEF3fCf324 with token address is 0x5A40B93A827055aEF0a67EE0d4f85b1e92e343Fd

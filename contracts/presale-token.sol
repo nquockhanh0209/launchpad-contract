@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./interfaces/IPinkswapRouter02.sol";
 import "./interfaces/IPinkswapFactory.sol";
+
 contract Presale is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     uint256 public softCap;
@@ -92,14 +93,27 @@ contract Presale is Ownable, ReentrancyGuard {
         tokenPrice = _tokenPrice;
         state = State.Pending;
         addLiquidContract = IPinkswapRouter02(_addLiquidContract);
-        createPairAddress = IPinkswapFactory(_createPairAddress);                  
+        createPairAddress = IPinkswapFactory(_createPairAddress);
 
         // Transfer tokens from the deployer to the contract
         token = IERC20(_tokenAddress);
     }
 
-    function getData(address _userAddress) public view returns (PresaleInfo memory) {
-        return(PresaleInfo(owner(), softCap, hardCap, startTime, endTime, tokenPrice, totalSold, token.balanceOf(_userAddress)));
+    function getData(
+        address _userAddress
+    ) public view returns (PresaleInfo memory) {
+        return (
+            PresaleInfo(
+                owner(),
+                softCap,
+                hardCap,
+                startTime,
+                endTime,
+                tokenPrice,
+                totalSold,
+                token.balanceOf(_userAddress)
+            )
+        );
     }
 
     // function startPresale() external onlyOwner {
@@ -228,26 +242,63 @@ contract Presale is Ownable, ReentrancyGuard {
         emit RefundedTokens(msg.sender, refundableAmount);
     }
 
-    function isFinalized() public view returns(bool){
-        return (block.timestamp >= endTime || totalSold >= softCap || totalSold == hardCap);
+    function isFinalized() public view returns (bool) {
+        return (block.timestamp >= endTime ||
+            totalSold >= softCap ||
+            totalSold == hardCap);
     }
 
     //deadline = now + lock time
-    function finalize(uint8 _liquidPercent, uint256 _deadline) public payable nonReentrant{
+    function finalize(
+        uint8 _liquidPercent,
+        uint256 _deadline,
+        bool _isRefund
+    ) public payable nonReentrant {
         require(isFinalized(), "can not finalize");
+        uint256 ETHAddLiquid = (address(this).balance * (_liquidPercent)) / 100;
+        uint256 refundToOwnerAmount = (address(this).balance *
+            (100 - _liquidPercent)) / 100;
+        uint256 amountTokenAddLiquid = (totalSold *
+            tokenPrice *
+            _liquidPercent) / 100;
+        //handle transfer token to contract this
+        token.transferFrom(msg.sender, address(this), amountTokenAddLiquid);
         //handle create pair
         createPairAddress.createPair(WBNB, address(token));
-
+        token.approve(
+            address(addLiquidContract),
+            (totalSold * tokenPrice * _liquidPercent) / 100
+        );
         //handle add liquid
-        require(51<= _liquidPercent && _liquidPercent <=100, "invalid liquidity percent");
-        payable(owner()).transfer(address(addLiquidContract).balance * (100-_liquidPercent) / 100);
-        addLiquidContract.addLiquidityETH(address(token), totalSold* _liquidPercent/ 100, 0, 0, address(addLiquidContract), _deadline);
-        
+        require(
+            51 <= _liquidPercent && _liquidPercent <= 100,
+            "invalid liquidity percent"
+        );
+
+        addLiquidContract.addLiquidityETH{value: ETHAddLiquid}(
+            address(token),
+            amountTokenAddLiquid,
+            0,
+            0,
+            owner(),
+            _deadline
+        );
+
         //handle finalize
         state = State.Finished;
-        payable(owner()).transfer(address(this).balance * (100-_liquidPercent) / 100);
-        
+        payable(owner()).transfer(refundToOwnerAmount);
+        if (_isRefund == true) {
+            refundLaunchpadTokenToOwner();
+        } else {
+            burnRemainingTokens();
+        }
 
         emit Finalize(block.timestamp);
+    }
+
+    function getLiquidAmount(
+        uint8 _liquidPercent
+    ) public view returns (uint256) {
+        return (totalSold * tokenPrice * _liquidPercent) / 100;
     }
 }

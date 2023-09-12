@@ -24,7 +24,7 @@ async function main() {
   let isPublic = true;
   let limitPerWallet = ethers.parseEther("0.04");
   let minimumPerWallet = ethers.parseEther("0.01");
-  let tokenPrice = ethers.parseEther("0.01");
+  let tokenPrice = 1000;
   let tokenAddress = await token.getAddress();
 
   const presale = await hre.ethers.deployContract("Presale", [
@@ -38,8 +38,8 @@ async function main() {
     tokenPrice,
     tokenAddress,
     
-    "0xBBe737384C2A26B15E23a181BDfBd9Ec49E00248",
-    "0xaadb9ef09aaf53019ebe3ebb25aecbb2c9e63210",
+    "0xBBe737384C2A26B15E23a181BDfBd9Ec49E00248", //router
+    "0xaadb9ef09aaf53019ebe3ebb25aecbb2c9e63210", //pair
   ]);
 
   await presale.waitForDeployment();
