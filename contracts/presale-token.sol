@@ -3,12 +3,14 @@ pragma solidity ^0.8.6;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "./interfaces/IPinkswapRouter02.sol";
 import "./interfaces/IPinkswapFactory.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "hardhat/console.sol";
 
-contract Presale is Ownable, ReentrancyGuard {
+contract Presale is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
     uint256 public softCap;
     uint256 public hardCap;
@@ -22,9 +24,9 @@ contract Presale is Ownable, ReentrancyGuard {
     bool public refundEnabled;
     IPinkswapRouter02 public addLiquidContract;
     IPinkswapFactory public createPairAddress;
-
+    bool isRefund;
     address immutable WBNB = 0x094616F0BdFB0b526bD735Bf66Eca0Ad254ca81F;
-
+    address public systemAdmin;
     enum State {
         Pending,
         Active,
@@ -44,7 +46,7 @@ contract Presale is Ownable, ReentrancyGuard {
     event ClaimedTokens(address indexed user, uint256 amount);
     event RefundedTokens(address indexed user, uint256 amount);
     event Finalize(uint256 timestamp);
-
+    event CancelPool(uint256 at);
     //struct
     struct PresaleInfo {
         address owner;
@@ -70,6 +72,10 @@ contract Presale is Ownable, ReentrancyGuard {
         _;
     }
 
+    modifier onlyAdmin() {
+        require( systemAdmin == msg.sender, "You are not authorized");
+        _;
+    }
     constructor(
         uint256 _softCap,
         uint256 _hardCap,
@@ -81,8 +87,8 @@ contract Presale is Ownable, ReentrancyGuard {
         uint256 _tokenPrice,
         address _tokenAddress,
         address _addLiquidContract,
-        address _createPairAddress
-        // uint256 _presaleMaxAMount
+        address _createPairAddress,
+        address _systemAdmin
     ) {
         softCap = _softCap;
         hardCap = _hardCap;
@@ -92,15 +98,14 @@ contract Presale is Ownable, ReentrancyGuard {
         limitPerWallet = _limitPerWallet;
         minimumPerWallet = _minimumPerWallet;
         tokenPrice = _tokenPrice;
-        state = State.Pending;
+
         addLiquidContract = IPinkswapRouter02(_addLiquidContract);
         createPairAddress = IPinkswapFactory(_createPairAddress);
+        systemAdmin = _systemAdmin;
 
-        // Transfer tokens from the deployer to the contract
         token = IERC20(_tokenAddress);
-        // token.transfer(address(this), _presaleMaxAMount);
     }
-
+    
     function getData(
         address _userAddress
     ) public view returns (PresaleInfo memory) {
@@ -133,14 +138,6 @@ contract Presale is Ownable, ReentrancyGuard {
         );
         state = State.Finished;
         payable(owner()).transfer(address(this).balance);
-    }
-
-    function cancelPresale() external onlyOwner {
-        require(
-            state == State.Finished,
-            "Presale has not started or already finished"
-        );
-        state = State.Canceled;
     }
 
     function setPublic(bool _isPublic) external onlyOwner {
@@ -204,14 +201,16 @@ contract Presale is Ownable, ReentrancyGuard {
 
     function burnRemainingTokens() internal {
         uint256 burnAmount = getRemainingTokensToHardCap();
-        require(burnAmount > 0, "No remaining tokens to burn");
-        token.safeTransfer(address(0), burnAmount);
+        if (burnAmount > 0) {
+            token.safeTransferFrom(msg.sender, address(0), burnAmount);
+        }
     }
 
     function refundLaunchpadTokenToOwner() internal {
         uint256 refundAmount = getRemainingTokensToHardCap();
-        require(refundAmount > 0, "No remaining tokens for refund");
-        token.safeTransfer(owner(), refundAmount);
+        if (refundAmount > 0) {
+            token.safeTransferFrom(msg.sender, address(0), refundAmount);
+        }
     }
 
     function getRemainingTokensToHardCap() public view returns (uint256) {
@@ -254,13 +253,16 @@ contract Presale is Ownable, ReentrancyGuard {
     function finalize(
         uint8 _liquidPercent,
         uint256 _deadline,
-        uint256 _listingRate,
-        bool _isRefund
-    ) public payable nonReentrant {
+        uint256 _listingRate
+    ) public payable nonReentrant onlyAdmin onlyOwner {
         require(isFinalized(), "can not finalize");
         uint256 ETHAddLiquid = (address(this).balance * (_liquidPercent)) / 100;
-        uint256 refundToOwnerAmount = (address(this).balance * (100 - _liquidPercent)) / 100;
-        uint256 amountTokenAddLiquid = (totalSold * tokenPrice * _listingRate * (_liquidPercent / 100)) / (1 ether * 1 ether);
+        uint256 refundToOwnerAmount = (address(this).balance *
+            (100 - _liquidPercent)) / 100;
+        uint256 amountTokenAddLiquid = ((totalSold *
+            tokenPrice *
+            _listingRate *
+            _liquidPercent) / 100) / (1 ether);
         //handle transfer token to contract this
         token.transferFrom(msg.sender, address(this), amountTokenAddLiquid);
         //handle create pair
@@ -284,13 +286,21 @@ contract Presale is Ownable, ReentrancyGuard {
         //handle finalize
         state = State.Finished;
         payable(owner()).transfer(refundToOwnerAmount);
-        if (_isRefund == true) {
+        emit Finalize(block.timestamp);
+    }
+
+    function cancelPresale() external onlyOwner onlyAdmin {
+        state = State.Canceled;
+        refundEnabled = true;
+        emit CancelPool(block.timestamp);
+    }
+
+    function withDrawOrBurn(bool _isRefund) public onlyOwner {
+        if (_isRefund) {
             refundLaunchpadTokenToOwner();
         } else {
             burnRemainingTokens();
         }
-
-        emit Finalize(block.timestamp);
     }
 
     function getLiquidAmount(
@@ -298,6 +308,7 @@ contract Presale is Ownable, ReentrancyGuard {
         uint256 _listingRate
     ) public view returns (uint256) {
         return
-            (totalSold * tokenPrice * _listingRate * (_liquidPercent / 100)) /(1 ether * 1 ether);
+            ((totalSold * tokenPrice * _listingRate * _liquidPercent) / 100) /
+            (1 ether);
     }
 }
