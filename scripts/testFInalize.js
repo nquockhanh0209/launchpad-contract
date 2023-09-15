@@ -604,15 +604,15 @@ async function main() {
   const provider = new ethers.JsonRpcProvider("https://data-seed-prebsc-1-s1.binance.org:8545")
   let wallet = new ethers.Wallet(process.env.OWNER_PK, provider);
   const contractPresale = new ethers.Contract({
-    address: "0x1A59a1bbc55C49e7f8A8447b818351cfAf09e11c",
+    address: "0xd38BE6a2d78F2E7502478277832bE14BA1B7831f",
     abi: ABI,
     wallet,
   });
-  console.log(ethers.parseEther("0.04"));
-  await contractPresale.connect(owner).buyTokens({value: ethers.parseEther("0.04")});
-  console.log("buy token success");
+  // console.log(ethers.parseEther("0.04"));
+  // await contractPresale.connect(owner).buyTokens({value: ethers.parseEther("0.04")});
+  // console.log("buy token success");
 
-  await contractPresale.connect(owner).finalize(51, 100000000000000000);
+  // await contractPresale.connect(owner).finalize(51, 100000000000000000);
   
 }
 

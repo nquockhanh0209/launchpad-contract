@@ -3,14 +3,13 @@ pragma solidity ^0.8.6;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "./interfaces/IPinkswapRouter02.sol";
 import "./interfaces/IPinkswapFactory.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "hardhat/console.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-contract Presale is OwnableUpgradeable, ReentrancyGuardUpgradeable {
+contract Presale is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     uint256 public softCap;
     uint256 public hardCap;
@@ -73,9 +72,10 @@ contract Presale is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     }
 
     modifier onlyAdmin() {
-        require( systemAdmin == msg.sender, "You are not authorized");
+        require(systemAdmin == msg.sender, "You are not authorized");
         _;
     }
+
     constructor(
         uint256 _softCap,
         uint256 _hardCap,
@@ -105,7 +105,7 @@ contract Presale is OwnableUpgradeable, ReentrancyGuardUpgradeable {
 
         token = IERC20(_tokenAddress);
     }
-    
+
     function getData(
         address _userAddress
     ) public view returns (PresaleInfo memory) {
@@ -244,9 +244,14 @@ contract Presale is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     }
 
     function isFinalized() public view returns (bool) {
-        return (block.timestamp >= endTime ||
-            totalSold >= softCap ||
-            totalSold == hardCap);
+        if (state == State.Pending) {
+            return (block.timestamp >= endTime ||
+                totalSold >= softCap ||
+                totalSold == hardCap);
+        }
+        else{
+            return false;
+        }
     }
 
     //deadline = now + lock time
