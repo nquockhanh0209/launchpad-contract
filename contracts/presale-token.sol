@@ -71,8 +71,11 @@ contract Presale is Ownable, ReentrancyGuard {
         _;
     }
 
-    modifier onlyAdmin() {
-        require(systemAdmin == msg.sender, "You are not authorized");
+    modifier onlyAdminOrOwner() {
+        require(
+            msg.sender == owner() || systemAdmin == msg.sender,
+            "Not the Owner or Admin"
+        );
         _;
     }
 
@@ -184,7 +187,8 @@ contract Presale is Ownable, ReentrancyGuard {
             "Already claimed"
         );
 
-        uint256 claimableAmount = contributions[msg.sender] * tokenPrice;
+        uint256 claimableAmount = (contributions[msg.sender] * tokenPrice) /
+            1 ether;
         claimedAmount[msg.sender] = contributions[msg.sender];
         contributions[msg.sender] = 0;
         token.safeTransfer(msg.sender, claimableAmount);
@@ -202,20 +206,20 @@ contract Presale is Ownable, ReentrancyGuard {
     function burnRemainingTokens() internal {
         uint256 burnAmount = getRemainingTokensToHardCap();
         if (burnAmount > 0) {
-            token.safeTransferFrom(msg.sender, address(0), burnAmount);
+            token.transfer(address(0), burnAmount);
         }
     }
 
     function refundLaunchpadTokenToOwner() internal {
         uint256 refundAmount = getRemainingTokensToHardCap();
         if (refundAmount > 0) {
-            token.safeTransferFrom(msg.sender, address(0), refundAmount);
+            token.transfer(msg.sender, refundAmount);
         }
     }
 
     function getRemainingTokensToHardCap() public view returns (uint256) {
-        uint256 soldTokens = totalSold * tokenPrice;
-        uint256 maxTokens = hardCap * tokenPrice;
+        uint256 soldTokens = (totalSold * tokenPrice) / 1 ether;
+        uint256 maxTokens = (hardCap * tokenPrice) / 1 ether;
 
         if (soldTokens >= maxTokens) {
             return 0;
@@ -248,8 +252,7 @@ contract Presale is Ownable, ReentrancyGuard {
             return (block.timestamp >= endTime ||
                 totalSold >= softCap ||
                 totalSold == hardCap);
-        }
-        else{
+        } else {
             return false;
         }
     }
@@ -259,7 +262,7 @@ contract Presale is Ownable, ReentrancyGuard {
         uint8 _liquidPercent,
         uint256 _deadline,
         uint256 _listingRate
-    ) public payable nonReentrant onlyAdmin onlyOwner {
+    ) public payable nonReentrant onlyAdminOrOwner {
         require(isFinalized(), "can not finalize");
         uint256 ETHAddLiquid = (address(this).balance * (_liquidPercent)) / 100;
         uint256 refundToOwnerAmount = (address(this).balance *
@@ -294,7 +297,7 @@ contract Presale is Ownable, ReentrancyGuard {
         emit Finalize(block.timestamp);
     }
 
-    function cancelPresale() external onlyOwner onlyAdmin {
+    function cancelPresale() external onlyAdminOrOwner {
         state = State.Canceled;
         refundEnabled = true;
         emit CancelPool(block.timestamp);
