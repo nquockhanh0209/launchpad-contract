@@ -26,13 +26,21 @@ contract Presale is Ownable, ReentrancyGuard {
     bool isRefund;
     address immutable WBNB = 0x094616F0BdFB0b526bD735Bf66Eca0Ad254ca81F;
     address public systemAdmin;
+    uint8 liquidListingPercentage;
+    uint256 rateListing;
+
+    bool isWithDrawOrBurn = false;
+
     enum State {
         Pending,
         Active,
         Finished,
         Canceled
     }
+
     State public state;
+
+    uint8 public feeOptions;
 
     mapping(address => uint256) public contributions;
     mapping(address => uint256) public refundAmounts;
@@ -57,6 +65,24 @@ contract Presale is Ownable, ReentrancyGuard {
         uint256 totalSold;
         uint256 userBalance;
     }
+    struct PresaleConstructor {
+        uint256 softCap;
+        uint256 hardCap;
+        uint256 startTime;
+        uint256 endTime;
+        bool isPublic;
+        uint256 limitPerWallet;
+        uint256 minimumPerWallet;
+        uint256 tokenPrice;
+        address tokenAddress;
+        address addLiquidContract;
+        address createPairAddress;
+        address systemAdmin;
+        uint8 liquidListingPercentage;
+        uint256 rateListing;
+        uint8 feeOptions;
+        bool isRefund;
+    }
 
     modifier onlyWhitelisted() {
         require(whitelistMap[msg.sender], "You are not whitelisted");
@@ -79,34 +105,26 @@ contract Presale is Ownable, ReentrancyGuard {
         _;
     }
 
-    constructor(
-        uint256 _softCap,
-        uint256 _hardCap,
-        uint256 _startTime,
-        uint256 _endTime,
-        bool _isPublic,
-        uint256 _limitPerWallet,
-        uint256 _minimumPerWallet,
-        uint256 _tokenPrice,
-        address _tokenAddress,
-        address _addLiquidContract,
-        address _createPairAddress,
-        address _systemAdmin
-    ) {
-        softCap = _softCap;
-        hardCap = _hardCap;
-        startTime = _startTime;
-        endTime = _endTime;
-        isPublic = _isPublic;
-        limitPerWallet = _limitPerWallet;
-        minimumPerWallet = _minimumPerWallet;
-        tokenPrice = _tokenPrice;
+    constructor(PresaleConstructor memory initInfo) {
+        softCap = initInfo.softCap;
+        hardCap = initInfo.hardCap;
+        startTime = initInfo.startTime;
+        endTime = initInfo.endTime;
+        isPublic = initInfo.isPublic;
+        limitPerWallet = initInfo.limitPerWallet;
+        minimumPerWallet = initInfo.minimumPerWallet;
+        tokenPrice = initInfo.tokenPrice;
 
-        addLiquidContract = IPinkswapRouter02(_addLiquidContract);
-        createPairAddress = IPinkswapFactory(_createPairAddress);
-        systemAdmin = _systemAdmin;
+        addLiquidContract = IPinkswapRouter02(initInfo.addLiquidContract);
+        createPairAddress = IPinkswapFactory(initInfo.createPairAddress);
+        systemAdmin = initInfo.systemAdmin;
 
-        token = IERC20(_tokenAddress);
+        token = IERC20(initInfo.tokenAddress);
+        liquidListingPercentage = initInfo.liquidListingPercentage;
+        rateListing = initInfo.rateListing;
+        //fee options = 0 is regular fee: 5%
+        feeOptions = initInfo.feeOptions;
+        isRefund = initInfo.isRefund;
     }
 
     function getData(
@@ -124,23 +142,6 @@ contract Presale is Ownable, ReentrancyGuard {
                 token.balanceOf(_userAddress)
             )
         );
-    }
-
-    // function startPresale() external onlyOwner {
-    //     require(
-    //         state == State.Pending,
-    //         "Presale has already started or finished"
-    //     );
-    //     state = State.Active;
-    // }
-
-    function finishPresale() external onlyOwner {
-        require(
-            state == State.Active || (refundEnabled && state == State.Pending),
-            "Presale has not started or already finished"
-        );
-        state = State.Finished;
-        payable(owner()).transfer(address(this).balance);
     }
 
     function setPublic(bool _isPublic) external onlyOwner {
@@ -259,18 +260,21 @@ contract Presale is Ownable, ReentrancyGuard {
 
     //deadline = now + lock time
     function finalize(
-        uint8 _liquidPercent,
-        uint256 _deadline,
-        uint256 _listingRate
+        uint256 _deadline
     ) public payable nonReentrant onlyAdminOrOwner {
         require(isFinalized(), "can not finalize");
-        uint256 ETHAddLiquid = (address(this).balance * (_liquidPercent)) / 100;
-        uint256 refundToOwnerAmount = (address(this).balance *
-            (100 - _liquidPercent)) / 100;
+        uint256 ETHAddLiquid = (address(this).balance *
+            (liquidListingPercentage)) / 100;
         uint256 amountTokenAddLiquid = ((totalSold *
             tokenPrice *
-            _listingRate *
-            _liquidPercent) / 100) / (1 ether);
+            rateListing *
+            liquidListingPercentage) / 100) / (1 ether * 1 ether);
+        uint256 fee = (address(this).balance * feeOptions) / 100;
+
+        uint256 refundToOwnerAmount = address(this).balance -
+            ETHAddLiquid -
+            fee;
+
         //handle transfer token to contract this
         token.transferFrom(msg.sender, address(this), amountTokenAddLiquid);
         //handle create pair
@@ -278,7 +282,7 @@ contract Presale is Ownable, ReentrancyGuard {
         token.approve(address(addLiquidContract), amountTokenAddLiquid);
         //handle add liquid
         require(
-            51 <= _liquidPercent && _liquidPercent <= 100,
+            51 <= liquidListingPercentage && liquidListingPercentage <= 100,
             "invalid liquidity percent"
         );
 
@@ -294,29 +298,34 @@ contract Presale is Ownable, ReentrancyGuard {
         //handle finalize
         state = State.Finished;
         payable(owner()).transfer(refundToOwnerAmount);
+        payable(systemAdmin).transfer(fee);
+        if (feeOptions != 5) {
+            uint256 feeTokens = (totalSold * feeOptions) / 100;
+            token.transfer(msg.sender, feeTokens);
+        }
         emit Finalize(block.timestamp);
     }
 
     function cancelPresale() external onlyAdminOrOwner {
+        require(state != State.Finished, "Presale was finished");
         state = State.Canceled;
         refundEnabled = true;
         emit CancelPool(block.timestamp);
     }
 
-    function withDrawOrBurn(bool _isRefund) public onlyOwner {
-        if (_isRefund) {
+    function withDrawOrBurn() public onlyOwner {
+        require(state == State.Canceled, "Can not withdraw or burn");
+        isWithDrawOrBurn = true;
+        if (isRefund) {
             refundLaunchpadTokenToOwner();
         } else {
             burnRemainingTokens();
         }
     }
 
-    function getLiquidAmount(
-        uint8 _liquidPercent,
-        uint256 _listingRate
-    ) public view returns (uint256) {
+    function getLiquidAmount() public view returns (uint256) {
         return
-            ((totalSold * tokenPrice * _listingRate * _liquidPercent) / 100) /
-            (1 ether);
+            ((totalSold * tokenPrice * rateListing * liquidListingPercentage) /
+                100) / (1 ether * 1 ether);
     }
 }
